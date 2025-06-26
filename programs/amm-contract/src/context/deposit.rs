@@ -1,12 +1,11 @@
-use crate::constant_product_curve::ConstantProductCurve;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token_interface::{
-        mint_to, transfer_checked, Mint, MintTo, Token, TokenAccount, TransferChecked,
-    },
+    token::Token,
+    token_interface::{mint_to, transfer_checked, Mint, MintTo, TokenAccount, TransferChecked},
 };
 
+use crate::constant_product_curve::*;
 use crate::states::Config;
 
 #[derive(Accounts)]
@@ -18,7 +17,7 @@ pub struct Deposit<'info> {
 
     #[account(
         mut,
-        seeds = [b"lp", config.key().as_ref()]
+        seeds = [b"lp", config.key().as_ref()],
         bump = config.lp_bump
     )]
     pub mint_lp: InterfaceAccount<'info, Mint>,
@@ -61,7 +60,7 @@ pub struct Deposit<'info> {
     #[account(
         has_one = mint_x,
         has_one = mint_y,
-        seeds = [b"config", config.seed.to_le_bytes().as_ref()]
+        seeds = [b"config", mint_x.key().as_ref(), mint_y.key().as_ref()],
         bump = config.my_bump
     )]
     pub config: Account<'info, Config>,
@@ -105,14 +104,18 @@ impl<'info> Deposit<'info> {
     }
 
     pub fn deposit_token(&self, amount: u64, is_x: bool) -> Result<()> {
-        let (from, to) = match is_x {
+        let (from, to, mint, decimals) = match is_x {
             true => (
                 self.user_x.to_account_info(),
                 self.vault_x.to_account_info(),
+                self.mint_x.to_account_info(),
+                self.mint_x.decimals,
             ),
             false => (
                 self.user_y.to_account_info(),
                 self.vault_y.to_account_info(),
+                self.mint_y.to_account_info(),
+                self.mint_y.decimals,
             ),
         };
 
@@ -121,22 +124,28 @@ impl<'info> Deposit<'info> {
             TransferChecked {
                 from,
                 to,
+                mint: mint,
                 authority: self.user.to_account_info(),
             },
         );
 
-        transfer_checked(cpi_ctx, amount, 6)?;
+        transfer_checked(cpi_ctx, amount, decimals)?;
         Ok(())
     }
 
     pub fn mint_lp_token(&self, amount: u64) -> Result<()> {
-        let seeds = &[
+        let mint_x_key = self.mint_x.key();
+        let mint_x_pubkey = mint_x_key.as_ref();
+        let mint_y_key = self.mint_y.key();
+        let mint_y_pubkey = mint_y_key.as_ref();
+        let seeds: &[&[u8]] = &[
             b"config",
-            &self.config.seed.to_le_bytes(),
+            mint_x_pubkey,
+            mint_y_pubkey,
             &[self.config.my_bump],
         ];
 
-        let signer_seeds = &[&[seeds[..]]];
+        let signer_seeds: &[&[&[u8]]] = &[seeds];
 
         let cpi_context = CpiContext::new_with_signer(
             self.token_program.to_account_info(),
@@ -148,6 +157,6 @@ impl<'info> Deposit<'info> {
             signer_seeds,
         );
 
-        mint_to(cpi_context, amount)?;
+        mint_to(cpi_context, amount)
     }
 }

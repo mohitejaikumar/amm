@@ -1,8 +1,9 @@
-use crate::state::Config;
+use crate::states::Config;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token_interface::{transfer_checked, Mint, Token, TransferChecked},
+    token::Token,
+    token_interface::{transfer_checked, Mint, TokenAccount, TransferChecked},
 };
 
 #[derive(Accounts)]
@@ -11,43 +12,43 @@ pub struct Swap<'info> {
     pub user: Signer<'info>,
 
     #[account(
-        seeds = [b"config", config.seed.to_le_bytes.as_ref()],
+        seeds = [b"config", mint_x.key().as_ref(), mint_y.key().as_ref()],
         bump = config.my_bump,
         has_one = mint_x,
         has_one = mint_y
     )]
     pub config: Account<'info, Config>,
 
-    pub mint_x: Account<'info, Mint>,
-    pub mint_y: Account<'info, Mint>,
+    pub mint_x: InterfaceAccount<'info, Mint>,
+    pub mint_y: InterfaceAccount<'info, Mint>,
 
     #[account(
         mut,
         associated_token::mint = mint_x,
         associated_token::authority = config
     )]
-    pub vault_x: Account<'info, TokenAccount>,
+    pub vault_x: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
         associated_token::mint = mint_y,
         associated_token::authority = config
     )]
-    pub vault_y: Account<'info, TokenAccount>,
+    pub vault_y: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
         associated_token::mint = mint_x,
         associated_token::authority = user
     )]
-    pub user_x: Account<'info, TokenAccount>,
+    pub user_x: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
         associated_token::mint = mint_y,
         associated_token::authority = user
     )]
-    pub user_y: Account<'info, TokenAccount>,
+    pub user_y: InterfaceAccount<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -67,9 +68,9 @@ impl<'info> Swap<'info> {
         // transfer from vault to the USER ATA
 
         if is_x_in {
-            self.transfer_in(&self.user_x, &self.vault_x, &self.mint_x, amount_in)
+            self.transfer_in(&self.user_x, &self.vault_x, &self.mint_x, amount_in)?;
         } else {
-            self.transfer_in(&self.user_y, &self.vault_y, &self.mint_y, amount_in)
+            self.transfer_in(&self.user_y, &self.vault_y, &self.mint_y, amount_in)?;
         }
 
         let fees = self.config.fees as u128;
@@ -102,19 +103,19 @@ impl<'info> Swap<'info> {
 
         let out_u64 = out_amt as u64;
         if is_x_in {
-            self.transfer_out(&self.vault_y, &self.vault_y, out_u64)?;
+            self.transfer_out(&self.vault_y, &self.vault_y, &self.mint_y, out_u64)?;
         } else {
-            self.transfer_out(&self.vault_x, &self.user_x, out_u64)?;
+            self.transfer_out(&self.vault_x, &self.user_x, &self.mint_x, out_u64)?;
         }
 
         Ok(())
     }
 
     pub fn transfer_in(
-        &mut self,
-        from: &Account<'info, TokenAccount>,
-        to: &Account<'info, TokenAccount>,
-        mint: &Account<'info, Mint>,
+        &self,
+        from: &InterfaceAccount<'info, TokenAccount>,
+        to: &InterfaceAccount<'info, TokenAccount>,
+        mint: &InterfaceAccount<'info, Mint>,
         amount: u64,
     ) -> Result<()> {
         let cpi_context = CpiContext::new(
@@ -127,24 +128,28 @@ impl<'info> Swap<'info> {
             },
         );
 
-        transfer_checked(cpi_context, amount, mint.decimals)?;
+        transfer_checked(cpi_context, amount, mint.decimals)
     }
 
     pub fn transfer_out(
-        &mut self,
-        from: &Account<'info, TokenAccount>,
-        to: &Account<'info, TokenAccount>,
-        mint: &Account<'info, Mint>,
+        &self,
+        from: &InterfaceAccount<'info, TokenAccount>,
+        to: &InterfaceAccount<'info, TokenAccount>,
+        mint: &InterfaceAccount<'info, Mint>,
         amount: u64,
     ) -> Result<()> {
-        let seed_bytes = self.config.seed.to_le_bytes();
         let bump_byte = self.config.my_bump;
 
-        let seeds = [b"config", &seed_bytes, &bump_byte];
+        let mint_x_key = self.mint_x.key();
+        let mint_x_pubkey = mint_x_key.as_ref();
+        let mint_y_key = self.mint_y.key();
+        let mint_y_pubkey = mint_y_key.as_ref();
 
-        let signer_seeds: &[&[&[u8]]] = &[&seeds];
+        let seeds = &[b"config", mint_x_pubkey, mint_y_pubkey, &[bump_byte]];
 
-        let cpi_context = CpiContext::new_with_signed(
+        let signer_seeds = &[&seeds[..]];
+
+        let cpi_context = CpiContext::new_with_signer(
             self.token_program.to_account_info(),
             TransferChecked {
                 from: from.to_account_info(),
@@ -155,7 +160,7 @@ impl<'info> Swap<'info> {
             signer_seeds,
         );
 
-        transfer_checked(cpi_context, amount, mint.decimals)?;
+        transfer_checked(cpi_context, amount, mint.decimals)
     }
 }
 

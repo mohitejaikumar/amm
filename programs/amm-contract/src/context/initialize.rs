@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token_interface::{transfer, Mint, Token, TokenAccount, Transfer},
+    token::Token,
+    token_interface::{Mint, TokenAccount},
 };
 
 use crate::states::Config;
@@ -44,7 +45,7 @@ pub struct InitializeConfig<'info> {
     #[account(
         init,
         payer=initializer,
-        seeds=[b"config", seed.to_le_bytes().as_ref()],
+        seeds=[b"config", mint_x.key().as_ref(), mint_y.key().as_ref()],
         space= 8 + Config::INIT_SPACE,
         bump
     )]
@@ -58,17 +59,15 @@ pub struct InitializeConfig<'info> {
 impl<'info> InitializeConfig<'info> {
     pub fn init(
         &mut self,
-        seed: u64,
         fees: u16,
-        authority: Optional<Pubkey>,
+        authority: Option<Pubkey>,
         bumps: InitializeConfigBumps,
     ) -> Result<()> {
         self.config.set_inner(Config {
-            seed,
             authority,
             fees,
-            mint_x,
-            mint_y,
+            mint_x: self.mint_x.key(),
+            mint_y: self.mint_y.key(),
             my_bump: bumps.config,
             lp_bump: bumps.mint_lp,
         });
