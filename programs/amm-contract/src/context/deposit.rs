@@ -7,6 +7,8 @@ use anchor_spl::{
     },
 };
 
+use crate::states::Config;
+
 #[derive(Accounts)]
 pub struct Deposit<'info> {
     #[account(mut)]
@@ -55,6 +57,14 @@ pub struct Deposit<'info> {
         associated_token::mint = mint_lp
     )]
     pub user_lp: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        has_one = mint_x,
+        has_one = mint_y,
+        seeds = [b"config", config.seed.to_le_bytes().as_ref()]
+        bump = config.my_bump
+    )]
+    pub config: Account<'info, Config>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
