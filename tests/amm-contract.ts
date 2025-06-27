@@ -194,7 +194,7 @@ describe("amm-contract", () => {
       const vaultXBalanceBefore = await provider.connection.getTokenAccountBalance(vaultX);
       const vaultYBalanceBefore = await provider.connection.getTokenAccountBalance(vaultY);
 
-      const tx = await program.methods
+      await program.methods
         .deposit(
           new anchor.BN(amount),
           maxX,
@@ -254,13 +254,84 @@ describe("amm-contract", () => {
         amount.toString(),
         "LP balance updated"
       );
-
-      
     })
 
-    
+    it("check proportional distribution of liquidity", async()=>{
+      const secont_lp_amount = new BN(10*1_000_000);
+      const maxX = new BN(10*1_000_000); // correct amount should be greater than 50*1_000_000
+      const maxY = new BN(100*1_000_000);
 
-    
-    
+      const userXBalanceBefore = await provider.connection.getTokenAccountBalance(userTokenAccountX);
+      const userYBalanceBefore = await provider.connection.getTokenAccountBalance(userTokenAccountY);
+      const vaultXBalanceBefore = await provider.connection.getTokenAccountBalance(vaultX);
+      const vaultYBalanceBefore = await provider.connection.getTokenAccountBalance(vaultY);
+      const userLpBalanceBefore = await provider.connection.getTokenAccountBalance(userLpTokenAccount);
+
+      try {
+        await program.methods
+        .deposit(
+          secont_lp_amount,
+          maxX,
+          maxY
+        )
+        .accountsPartial({
+          user: liquidityProvider.publicKey,
+          mintX: tokenXMint,
+          mintY: tokenYMint,
+          vaultX: vaultX,
+          vaultY: vaultY,
+          mintLp: lpMint,
+          userLp: userLpTokenAccount,
+        })
+        .signers([liquidityProvider])
+        .rpc();
+        assert.fail("should have failed");
+      }
+      catch (err){
+        console.log("error due to invalid ratio",JSON.stringify(err));
+      }
+
+      const userXBalanceAfter = await provider.connection.getTokenAccountBalance(userTokenAccountX);
+      const userYBalanceAfter = await provider.connection.getTokenAccountBalance(userTokenAccountY);
+      const vaultXBalanceAfter = await provider.connection.getTokenAccountBalance(vaultX);
+      const vaultYBalanceAfter = await provider.connection.getTokenAccountBalance(vaultY);
+      const userLpBalanceAfter = await provider.connection.getTokenAccountBalance(userLpTokenAccount);
+
+      console.log("X user balance",userXBalanceAfter.value.amount.toString(), userXBalanceBefore.value.amount.toString());
+      console.log("Y user balance",userYBalanceAfter.value.amount.toString(), userYBalanceBefore.value.amount.toString());
+      console.log("X vault balance",vaultXBalanceAfter.value.amount.toString(), vaultXBalanceBefore.value.amount.toString());
+      console.log("Y vault balance",vaultYBalanceAfter.value.amount.toString(), vaultYBalanceBefore.value.amount.toString());
+      console.log("LP balance",userLpBalanceAfter.value.amount.toString(), userLpBalanceBefore.value.amount.toString());
+
+      assert.equal(
+        new BN(userXBalanceAfter.value.amount).sub(new BN(userXBalanceBefore.value.amount)).toString(),
+        "0",
+        "X user balance updated"
+      );
+
+      assert.equal(
+        new BN(userYBalanceAfter.value.amount).sub(new BN(userYBalanceBefore.value.amount)).toString(),
+        "0",
+        "Y user balance updated"
+      );
+
+      assert.equal(
+        new BN(vaultXBalanceAfter.value.amount).sub(new BN(vaultXBalanceBefore.value.amount)).toString(),
+        "0",
+        "X vault balance updated"
+      );
+
+      assert.equal(
+        new BN(vaultYBalanceAfter.value.amount).sub(new BN(vaultYBalanceBefore.value.amount)).toString(),
+        "0",
+        "Y vault balance updated"
+      );
+
+      assert.equal(
+        new BN(userLpBalanceAfter.value.amount).sub(new BN(userLpBalanceBefore.value.amount)).toString(),
+        "0",
+        "LP balance updated"
+      )
+    })
   })
 });
