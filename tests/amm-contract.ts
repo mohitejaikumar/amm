@@ -3,6 +3,7 @@ import { Program } from "@coral-xyz/anchor";
 import { AmmContract } from "../target/types/amm_contract";
 import {createAccount, createAssociatedTokenAccount, createInitializeMintInstruction, createMint, getAccount, getAssociatedTokenAddress, getMint, MINT_SIZE, mintTo, TOKEN_2022_PROGRAM_ID} from "@solana/spl-token";
 import { assert } from "chai";
+import { BN } from "bn.js";
 
 describe("amm-contract", () => {
   // Configure the client to use the local cluster.
@@ -12,7 +13,7 @@ describe("amm-contract", () => {
   const provider = anchor.getProvider();
   
   const wallet = provider.wallet as anchor.Wallet;
-  const tokensAuthority = anchor.web3.Keypair.generate();
+  const poolAuthority = anchor.web3.Keypair.generate();
   const liquidityProvider = anchor.web3.Keypair.generate();
   const poolInitializer = anchor.web3.Keypair.generate();
 
@@ -33,6 +34,11 @@ describe("amm-contract", () => {
   const fees = 30;
 
   before(async ()=> {
+    const airdrop = await provider.connection.requestAirdrop(
+      liquidityProvider.publicKey,
+      anchor.web3.LAMPORTS_PER_SOL * 1000000
+    );
+    await provider.connection.confirmTransaction(airdrop);
 
     tokenXMint = await createMint(
       provider.connection,
@@ -79,16 +85,16 @@ describe("amm-contract", () => {
 
     userTokenAccountX = await createAssociatedTokenAccount(
       provider.connection,
-      wallet.payer,
+      liquidityProvider,
       tokenXMint,
-      wallet.publicKey,
+      liquidityProvider.publicKey
     )
 
     userTokenAccountY = await createAssociatedTokenAccount(
       provider.connection,
-      wallet.payer,
+      liquidityProvider,
       tokenYMint,
-      wallet.publicKey,
+      liquidityProvider.publicKey
     )
   })
 
@@ -96,7 +102,7 @@ describe("amm-contract", () => {
   describe("Initialize Pool", ()=> {
 
     it("initialize pool", async ()=>{
-      const tx = await program.methods.initialize(fees, tokensAuthority.publicKey)
+      const tx = await program.methods.initialize(fees, poolAuthority.publicKey)
       .accounts({
         initializer: wallet.publicKey,
         mintX: tokenXMint,
@@ -108,7 +114,7 @@ describe("amm-contract", () => {
 
       assert.strictEqual(
         pool.authority.toBase58(),
-        tokensAuthority.publicKey.toBase58(),
+        poolAuthority.publicKey.toBase58(),
         "Pool authority Matched"
       );
 
@@ -150,10 +156,111 @@ describe("amm-contract", () => {
 
       const vaultYAccount = await provider.connection.getAccountInfo(vaultY);
       assert.isNotNull(vaultYAccount, "Vault Y Account Created");
+    })
+    
+    it("provide liquidity", async ()=> {
 
-     
+      userLpTokenAccount = await createAssociatedTokenAccount(
+        provider.connection,
+        liquidityProvider,
+        lpMint,
+        liquidityProvider.publicKey,
+      );
+      
+      await mintTo(
+        provider.connection,
+        wallet.payer,
+        tokenXMint,
+        userTokenAccountX,
+        wallet.publicKey,
+        1_000 * 1_000_000
+      );
+
+      await mintTo(
+        provider.connection,
+        wallet.payer,
+        tokenYMint,
+        userTokenAccountY,
+        wallet.publicKey,
+        1_000 * 1_000_000
+      );
+
+      const amount = new BN(50_000_000);
+      const maxX = new BN(100*1_000_000);
+      const maxY = new BN(200*1_000_000);
+
+      const userXBalanceBefore = await provider.connection.getTokenAccountBalance(userTokenAccountX);
+      const userYBalanceBefore = await provider.connection.getTokenAccountBalance(userTokenAccountY);
+      const vaultXBalanceBefore = await provider.connection.getTokenAccountBalance(vaultX);
+      const vaultYBalanceBefore = await provider.connection.getTokenAccountBalance(vaultY);
+
+      const tx = await program.methods
+        .deposit(
+          new anchor.BN(amount),
+          maxX,
+          maxY
+        )
+        .accountsPartial({
+          user: liquidityProvider.publicKey,
+          mintX: tokenXMint,
+          mintY: tokenYMint,
+          vaultX: vaultX,
+          vaultY: vaultY,
+          mintLp: lpMint,
+          userLp: userLpTokenAccount,
+        })
+        .signers([liquidityProvider])
+        .rpc();
+
+      const userXBalanceAfter = await provider.connection.getTokenAccountBalance(userTokenAccountX);
+      const userYBalanceAfter = await provider.connection.getTokenAccountBalance(userTokenAccountY);
+      const vaultXBalanceAfter = await provider.connection.getTokenAccountBalance(vaultX);
+      const vaultYBalanceAfter = await provider.connection.getTokenAccountBalance(vaultY);
+      const userLpBalanceAfter = await provider.connection.getTokenAccountBalance(userLpTokenAccount);
+
+      console.log("X user balance",userXBalanceAfter.value.amount.toString(), userXBalanceBefore.value.amount.toString());
+      console.log("Y user balance",userYBalanceAfter.value.amount.toString(), userYBalanceBefore.value.amount.toString());
+      console.log("X vault balance",vaultXBalanceAfter.value.amount.toString(), vaultXBalanceBefore.value.amount.toString());
+      console.log("Y vault balance",vaultYBalanceAfter.value.amount.toString(), vaultYBalanceBefore.value.amount.toString());
+      console.log("LP balance",userLpBalanceAfter.value.amount.toString(),0);
+      console.log(userLpBalanceAfter.value.amount.toString());
+      
+      assert.equal(
+        new BN(userXBalanceBefore.value.amount).sub(new BN(userXBalanceAfter.value.amount)).toString(),
+        maxX.toString(),
+        "X user balance updated"
+      );
+
+      assert.equal(
+        new BN(userYBalanceBefore.value.amount).sub(new BN(userYBalanceAfter.value.amount)).toString(),
+        maxY.toString(),
+        "Y user balance updated"
+      );
+
+      assert.equal(
+        new BN(vaultXBalanceAfter.value.amount).sub(new BN(vaultXBalanceBefore.value.amount)).toString(),
+        maxX.toString(),
+        "X vault balance updated"
+      );
+
+      assert.equal(
+        new BN(vaultYBalanceAfter.value.amount).sub(new BN(vaultYBalanceBefore.value.amount)).toString(),
+        maxY.toString(),
+        "Y vault balance updated"
+      );
+
+      assert.equal(
+        new BN(userLpBalanceAfter.value.amount).sub(new BN(0)).toString(),
+        amount.toString(),
+        "LP balance updated"
+      );
+
+      
     })
 
+    
+
+    
     
   })
 });
