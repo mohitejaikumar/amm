@@ -333,5 +333,81 @@ describe("amm-contract", () => {
         "LP balance updated"
       )
     })
+
+    it("swap tokens in the AMM pool", async()=>{
+      const amountIn = new BN(10*1_000_000);
+      const minOut = new BN(15*1_000_000);
+
+      const userXBalanceBefore = await provider.connection.getTokenAccountBalance(userTokenAccountX);
+      const userYBalanceBefore = await provider.connection.getTokenAccountBalance(userTokenAccountY);
+      const vaultXBalanceBefore = await provider.connection.getTokenAccountBalance(vaultX);
+      const vaultYBalanceBefore = await provider.connection.getTokenAccountBalance(vaultY);
+      
+      const amountInAfterFees = amountIn.mul(
+        new BN(10000 - fees)
+      ).div(new BN(10000));
+
+      const vaultXAmount = parseInt(vaultXBalanceBefore.value.amount);
+      const vaultYAmount = parseInt(vaultYBalanceBefore.value.amount);
+
+      const expectedAmountOut = Math.floor(
+        vaultYAmount - 
+        (((vaultXAmount * vaultYAmount) * 1_000_000) / 
+        (vaultXAmount + amountInAfterFees.toNumber())) / 1_000_000
+      );
+
+      console.log("amountInAfterFees",amountInAfterFees.toString());
+      console.log("expectedAmountOut",expectedAmountOut);
+
+      const tx = await program.methods
+        .swap(
+          amountIn,
+          minOut,
+          true
+        )
+        .accountsPartial({
+          user: liquidityProvider.publicKey,
+          mintX: tokenXMint,
+          mintY: tokenYMint,
+          vaultX: vaultX,
+          vaultY: vaultY,
+        })
+        .signers([liquidityProvider])
+        .rpc();
+
+      const userXBalanceAfter = await provider.connection.getTokenAccountBalance(userTokenAccountX);
+      const userYBalanceAfter = await provider.connection.getTokenAccountBalance(userTokenAccountY);
+      const vaultXBalanceAfter = await provider.connection.getTokenAccountBalance(vaultX);
+      const vaultYBalanceAfter = await provider.connection.getTokenAccountBalance(vaultY);
+
+      console.log("X user balance",userXBalanceAfter.value.amount.toString(), userXBalanceBefore.value.amount.toString());
+      console.log("Y user balance",userYBalanceAfter.value.amount.toString(), userYBalanceBefore.value.amount.toString());
+      console.log("X vault balance",vaultXBalanceAfter.value.amount.toString(), vaultXBalanceBefore.value.amount.toString());
+      console.log("Y vault balance",vaultYBalanceAfter.value.amount.toString(), vaultYBalanceBefore.value.amount.toString());
+
+      assert.equal(
+        new BN(userXBalanceBefore.value.amount).sub(new BN(userXBalanceAfter.value.amount)).toString(),
+        amountIn.toString(),
+        "X user balance updated"
+      );
+
+      assert.equal(
+        new BN(userYBalanceAfter.value.amount).sub(new BN(userYBalanceBefore.value.amount)).toString(),
+        expectedAmountOut.toString(),
+        "Y user balance updated"
+      );
+
+      assert.equal(
+        new BN(vaultXBalanceAfter.value.amount).sub(new BN(vaultXBalanceBefore.value.amount)).toString(),
+        amountIn.toString(),
+        "X vault balance updated"
+      );
+
+      assert.equal(
+        new BN(vaultYBalanceBefore.value.amount).sub(new BN(vaultYBalanceAfter.value.amount)).toString(),
+        expectedAmountOut.toString(),
+        "Y vault balance updated"
+      );
+    })
   })
 });

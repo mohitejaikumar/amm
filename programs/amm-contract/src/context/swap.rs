@@ -103,7 +103,7 @@ impl<'info> Swap<'info> {
 
         let out_u64 = out_amt as u64;
         if is_x_in {
-            self.transfer_out(&self.vault_y, &self.vault_y, &self.mint_y, out_u64)?;
+            self.transfer_out(&self.vault_y, &self.user_y, &self.mint_y, out_u64)?;
         } else {
             self.transfer_out(&self.vault_x, &self.user_x, &self.mint_x, out_u64)?;
         }
