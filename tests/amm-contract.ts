@@ -11,7 +11,7 @@ describe("amm-contract", () => {
   const program = anchor.workspace.ammContract as Program<AmmContract>;
   const provider = anchor.getProvider();
   
-  const initializer = provider.wallet.publicKey;
+  const wallet = provider.wallet as anchor.Wallet;
   const tokensAuthority = anchor.web3.Keypair.generate();
   const liquidityProvider = anchor.web3.Keypair.generate();
   const poolInitializer = anchor.web3.Keypair.generate();
@@ -29,34 +29,23 @@ describe("amm-contract", () => {
   let userLpTokenAccount: anchor.web3.PublicKey;
   let userTokenAccountX: anchor.web3.PublicKey;
   let userTokenAccountY: anchor.web3.PublicKey;
+  
+  const fees = 30;
 
   before(async ()=> {
-    const mintRent = await provider.connection.getMinimumBalanceForRentExemption(MINT_SIZE);
-
-    // const airdrop1 = await provider.connection.requestAirdrop(
-    //   liquidityProvider.publicKey,
-    //   anchor.web3.LAMPORTS_PER_SOL * 1000000
-    // );
-    
-    // await provider.connection.confirmTransaction(airdrop1);
-    const airdrop2 = await provider.connection.requestAirdrop(
-      poolInitializer.publicKey,
-      anchor.web3.LAMPORTS_PER_SOL * 1000000
-    );
-    await provider.connection.confirmTransaction(airdrop2);
 
     tokenXMint = await createMint(
       provider.connection,
-      tokensAuthority,
-      tokensAuthority.publicKey,
+      wallet.payer,
+      wallet.publicKey,
       null,
       6,
     );
 
     tokenYMint = await createMint(
       provider.connection,
-      tokensAuthority,
-      tokensAuthority.publicKey,
+      wallet.payer,
+      wallet.publicKey,
       null,
       6,
     );
@@ -79,33 +68,37 @@ describe("amm-contract", () => {
     vaultX = await getAssociatedTokenAddress(
       tokenXMint,
       configPda,
-      true,
-      TOKEN_2022_PROGRAM_ID
+      true
     );
 
     vaultY = await getAssociatedTokenAddress(
       tokenYMint,
       configPda,
-      true,
-      TOKEN_2022_PROGRAM_ID
+      true
     );
 
-    lpVault = await getAssociatedTokenAddress(
-      lpMint,
-      configPda,
-      true,
-      TOKEN_2022_PROGRAM_ID
-    );
+    userTokenAccountX = await createAssociatedTokenAccount(
+      provider.connection,
+      wallet.payer,
+      tokenXMint,
+      wallet.publicKey,
+    )
 
+    userTokenAccountY = await createAssociatedTokenAccount(
+      provider.connection,
+      wallet.payer,
+      tokenYMint,
+      wallet.publicKey,
+    )
   })
 
 
   describe("Initialize Pool", ()=> {
 
     it("initialize pool", async ()=>{
-      const tx = await program.methods.initialize(30, initializer)
+      const tx = await program.methods.initialize(fees, tokensAuthority.publicKey)
       .accounts({
-        initializer: initializer,
+        initializer: wallet.publicKey,
         mintX: tokenXMint,
         mintY: tokenYMint,
       })
@@ -152,9 +145,6 @@ describe("amm-contract", () => {
       const lpMintAccount = await provider.connection.getAccountInfo(lpMint);
       assert.isNotNull(lpMintAccount, "LP Mint Account Created");
 
-      const lpVaultAccount = await provider.connection.getAccountInfo(lpVault);
-      assert.isNotNull(lpVaultAccount, "LP Vault Account Created");
-
       const vaultXAccount = await provider.connection.getAccountInfo(vaultX);
       assert.isNotNull(vaultXAccount, "Vault X Account Created");
 
@@ -164,160 +154,6 @@ describe("amm-contract", () => {
      
     })
 
-    // it("provide liquidity", async ()=> {
-    //   userTokenAccountX = await createAssociatedTokenAccount(
-    //     provider.connection,
-    //     liquidityProvider,
-    //     tokenXMint.publicKey,
-    //     liquidityProvider.publicKey
-    //   );
-
-    //   userTokenAccountY = await createAssociatedTokenAccount(
-    //     provider.connection,
-    //     liquidityProvider,
-    //     tokenYMint.publicKey,
-    //     liquidityProvider.publicKey
-    //   );
-
-    //   userLpTokenAccount = await createAssociatedTokenAccount(
-    //     provider.connection,
-    //     liquidityProvider,
-    //     lpMint,
-    //     liquidityProvider.publicKey,
-    //   );
-      
-    //   await mintTo(
-    //     provider.connection,
-    //     tokensAuthority,
-    //     tokenXMint.publicKey,
-    //     liquidityProvider.publicKey,
-    //     tokensAuthority,
-    //     100000 * 1_000_000
-    //   );
-
-    //   await mintTo(
-    //     provider.connection,
-    //     tokensAuthority,
-    //     tokenYMint.publicKey,
-    //     liquidityProvider.publicKey,
-    //     tokensAuthority,
-    //     100000 * 1_000_000
-    //   );
-    // })
-
-    // it("add liquidity", async ()=> {
-    //   const quantityX = new anchor.BN(100* 1_000_000);
-    //   const quantityY = new anchor.BN(200* 1_000_000);
-
-
-    //   const tx = await program.methods.deposit(
-    //     new anchor.BN(100),
-    //     quantityX,
-    //     quantityY
-    //   )
-    //   .accountsPartial({
-    //     user: liquidityProvider.publicKey,
-    //     mintX: tokenXMint.publicKey,
-    //     mintY: tokenYMint.publicKey,
-    //     vaultX: vaultX,
-    //     vaultY: vaultY,
-    //     mintLp: lpMint,
-    //     userLp: userLpTokenAccount,
-    //   })
-    //   .signers([liquidityProvider])
-    //   .rpc();
-
-    //   const finalVaultX = await getAccount(provider.connection, vaultX);
-    //   const finalVaultY = await getAccount(provider.connection, vaultY);
-
-    //   assert.strictEqual(
-    //     finalVaultX.amount.toString(),
-    //     quantityX.toString(),
-    //     "Vault X amount updated"
-    //   );
-
-    //   assert.strictEqual(
-    //     finalVaultY.amount.toString(),
-    //     quantityY.toString(),
-    //     "Vault Y amount updated"
-    //   );
-
-    //   const mintInfo = await getMint(provider.connection, lpMint);
-    //   assert.isTrue(
-    //     Number(mintInfo.supply.toString()) > 0
-    //   )
-    //   console.log("tokens issued",mintInfo.supply.toString());
-
-    // })
-
-    // it("proportional distribution of liquidity", async()=>{
-    //   const quantityX = new anchor.BN(50* 1_000_000);
-    //   const quantityY = new anchor.BN(100* 1_000_000);
-
-    //   const initialVaultX = await getAccount(provider.connection, vaultX);
-    //   const initialVaultY = await getAccount(provider.connection, vaultY);
-
-    //   const tx = await program.methods.deposit(
-    //     new anchor.BN(100),
-    //     quantityX,
-    //     quantityY
-    //   )
-    //   .accountsPartial({
-    //     user: liquidityProvider.publicKey,
-    //     mintX: tokenXMint.publicKey,
-    //     mintY: tokenYMint.publicKey,
-    //     vaultX: vaultX,
-    //     vaultY: vaultY,
-    //     mintLp: lpMint,
-    //     userLp: userLpTokenAccount,
-    //   })
-    //   .signers([liquidityProvider])
-    //   .rpc();
-
-    //   const finalVaultX = await getAccount(provider.connection, vaultX);
-    //   const finalVaultY = await getAccount(provider.connection, vaultY);
-      
-    //   assert.strictEqual(
-    //     (finalVaultX.amount- initialVaultX.amount).toString(),
-    //     quantityX.toString(),
-    //     "Vault X amount updated"
-    //   );
-
-    //   assert.strictEqual(
-    //     (finalVaultY.amount- initialVaultY.amount).toString(),
-    //     quantityY.toString(),
-    //     "Vault Y amount updated"
-    //   );
-    // })
-    // it("should fail with invalid ratio", async()=>{
-    //   try {
-    //     const quantityX = new anchor.BN(50* 1_000_000);
-    //     const quantityY = new anchor.BN(100* 1_000_000);
-
-    //     const tx = await program.methods.deposit(
-    //       new anchor.BN(1000000),
-    //       quantityX,
-    //       quantityY
-    //     )
-    //     .accountsPartial({
-    //       user: liquidityProvider.publicKey,
-    //       mintX: tokenXMint.publicKey,
-    //       mintY: tokenYMint.publicKey,
-    //       vaultX: vaultX,
-    //       vaultY: vaultY,
-    //       mintLp: lpMint,
-    //       userLp: userLpTokenAccount,
-    //     })
-    //     .signers([liquidityProvider])
-    //     .rpc();
-
-    //     assert.fail("should have failed");
-    //   }
-    //   catch(er){
-    //     console.log("error due to invalid ratio",er);
-    //   }
-
-
-    // })
+    
   })
 });
