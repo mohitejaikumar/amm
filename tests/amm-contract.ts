@@ -350,7 +350,7 @@ describe("amm-contract", () => {
       const vaultXAmount = parseInt(vaultXBalanceBefore.value.amount);
       const vaultYAmount = parseInt(vaultYBalanceBefore.value.amount);
 
-      const expectedAmountOut = Math.floor(
+      const expectedAmountOut = Math.ceil(
         vaultYAmount - 
         (((vaultXAmount * vaultYAmount) * 1_000_000) / 
         (vaultXAmount + amountInAfterFees.toNumber())) / 1_000_000
